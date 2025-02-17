@@ -11,19 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# 
+# For ALP: 2023 CWI, Azim Afroozeh,  Leonardo Xavier Kuffo Rivero
 
 [package]
-name = "modelardb_compression"
+name = "alp_sys"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
-authors = ["Soeren Kejser Jensen <devel@kejserjensen.dk>"]
+authors = ["Abduvoris Abduvakhobov, Azim Afroozeh,  Leonardo Xavier Kuffo Rivero"]
 
 [dependencies]
 arrow.workspace = true
-modelardb_types = { path = "../modelardb_types" }
-alp_sys = { path = "../alp-sys" }
+cxx.workspace = true
 
-[dev-dependencies]
-modelardb_common = { path = "../modelardb_common" }
-proptest.workspace = true
+[build-dependencies]
+cxx-build = "1.0"

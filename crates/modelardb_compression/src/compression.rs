@@ -17,13 +17,16 @@
 //! using the model types in [`models`] to produce compressed segments containing metadata and
 //! models.
 
+use alp_sys::{VECTOR_SIZE, N_VECTORS_PER_ROWGROUP, ROWGROUP_SIZE};
+
 use arrow::record_batch::RecordBatch;
 use modelardb_types::schemas::COMPRESSED_SCHEMA;
 use modelardb_types::types::{ErrorBound, TimestampArray, ValueArray};
 
 use crate::error::{ModelarDbCompressionError, Result};
+use crate::models::alp::{self, get_rowgroup, ALP};
 use crate::models::gorilla::Gorilla;
-use crate::models::{self, timestamps, GORILLA_ID};
+use crate::models::{self, timestamps, GORILLA_ID, ALP_ID};
 use crate::types::{CompressedSegmentBatchBuilder, CompressedSegmentBuilder, ModelBuilder};
 
 /// Maximum number of residuals that can be stored as part of a compressed segment. The number of
@@ -235,24 +238,98 @@ fn compress_and_store_residuals_in_a_separate_segment(
 
     // Compute metadata and compress the values stored in this segment without residuals.
     let uncompressed_values = &uncompressed_values.values()[start_index..=end_index];
-    let mut gorilla = Gorilla::new(error_bound);
-    gorilla.compress_values(uncompressed_values);
-
-    let (values, min_value, max_value) = gorilla.model();
-
-    compressed_segment_batch_builder.append_compressed_segment(
-        univariate_id,
-        GORILLA_ID,
-        start_time,
-        end_time,
-        &timestamps,
-        min_value,
-        max_value,
-        &values,
-        &[],
-        f32::NAN, // TODO: compute and store the actual error.
-    )
+  
+    // ALP compression will be tried if there is more than 1024 values
+    if uncompressed_values.len() < VECTOR_SIZE {
+        // Compress with Gorilla
+        let mut gorilla = Gorilla::new(error_bound);
+        gorilla.compress_values(uncompressed_values);
+        let (values, min_value, max_value) = gorilla.model();
+        compressed_segment_batch_builder.append_compressed_segment(
+            univariate_id,
+            GORILLA_ID,
+            start_time,
+            end_time,
+            &timestamps,
+            min_value,
+            max_value,
+            &values,
+            &[],
+            f32::NAN, // TODO: compute and store the actual error.
+        )
+    } else {
+        // Create rowgroups, since we know there is enough data i.e., more than a single vector
+        let n_tuples = values.len();
+        let n_rowgroups = n_tuples / ROWGROUP_SIZE;
+        let n_vecs = n_tuples / VECTOR_SIZE;
+        // all rowgroups we have
+        let num_rowgroups = ceil(n_tuples, ROWGROUP_SIZE);
+        // Iterate over rowgroups
+        for row_group_id in 0..num_rowgroups {
+            // Find vectors per rowgroup
+            let mut vectors_per_current_rowgroup: usize = 0;
+            if num_rowgroups == 1 {
+                // only one rowgroup
+                vectors_per_current_rowgroup = n_vecs;
+            } else if row_group_id == num_rowgroups - 1 {
+                // last row_group: reminder vectors
+                vectors_per_current_rowgroup = n_vecs % N_VECTORS_PER_ROWGROUP;
+            } else {
+                vectors_per_current_rowgroup = N_VECTORS_PER_ROWGROUP;
+            }
+            // Find values per rowgroup
+            let num_values_in_a_rowgroup = vectors_per_current_rowgroup * VECTOR_SIZE;
+            let current_rowgroup = alp::get_rowgroup(row_group_id, num_values_in_a_rowgroup, &values);
+            // Perform ALP first level sampling and update state
+            let mut stt = alp::init(
+                &current_rowgroup, 
+                row_group_id, 
+                vectors_per_current_rowgroup
+            );
+            if alp::can_use_alp(&stt) {
+                // Compress with ALP
+                let mut alp = ALP::new(error_bound);
+                alp.compress_values(
+                    &current_rowgroup,
+                    num_values_in_a_rowgroup,
+                    &mut stt
+                );
+                let (values, min_value, max_value) = alp.model();
+                compressed_segment_batch_builder.append_compressed_segment(
+                    univariate_id,
+                    ALP_ID,
+                    start_time,
+                    end_time,
+                    &timestamps,
+                    min_value,
+                    max_value,
+                    &values,
+                    &[],
+                    f32::NAN, // TODO: compute and store the actual error.
+                )
+            } else {
+                // Compress with Gorilla
+                let mut gorilla = Gorilla::new(error_bound);
+                gorilla.compress_values(&current_rowgroup);
+                let (values, min_value, max_value) = gorilla.model();
+                compressed_segment_batch_builder.append_compressed_segment(
+                    univariate_id,
+                    ALP_ID,
+                    start_time,
+                    end_time,
+                    &timestamps,
+                    min_value,
+                    max_value,
+                    &values,
+                    &[],
+                    f32::NAN, // TODO: compute and store the actual error.
+                )
+            }
+        }
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {

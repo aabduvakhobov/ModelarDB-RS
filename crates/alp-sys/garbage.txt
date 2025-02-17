@@ -1,0 +1,31 @@
+For creating a vector pointer:
+    let mut sample_arr: Vec<f32> = Vec::with_capacity(VECTOR_SIZE);
+    let ptr = sample_arr.as_mut_ptr();
+    mem::forget(sample_arr);
+
+
+Function signature with a pointer:
+        unsafe fn alp_init(
+            data_column: &[f32], 
+            column_offset: usize,
+            tuples_count: usize,
+            sample_arr: *mut f32,
+            stt: Pin<&mut float_state>);
+
+THen you recreate the vector with:
+        unsafe {
+            let sample_arr: Vec<_> = Vec::from_raw_parts(ptr, ffi::get_sampled_values_n(stt.as_ref().unwrap()), ffi::get_sampled_values_n(stt.as_ref().unwrap()));
+            println!("Sample arr len: {}", sample_arr.len());
+        }
+
+Answer explained: https://users.rust-lang.org/t/using-pointers-received-from-c-to-populate-rust-vecs/50531 
+
+TO print memory addressin rust:
+    println!("Main.rs: mem addr {:p}", stt.as_mut().unwrap() );
+
+    
+
+
+
+
+

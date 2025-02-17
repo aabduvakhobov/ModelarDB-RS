@@ -17,6 +17,7 @@
 //! functions for efficiently computing aggregates from models of each type. The module itself
 //! contains general functionality used by the model types.
 
+pub mod alp;
 pub mod bits;
 pub mod gorilla;
 pub mod pmc_mean;
@@ -38,12 +39,13 @@ use crate::types::CompressedSegmentBuilder;
 pub const PMC_MEAN_ID: u8 = 0;
 pub const SWING_ID: u8 = 1;
 pub const GORILLA_ID: u8 = 2;
+pub const ALP_ID: u8 = 3;
 
 /// Number of implemented model types. It is usize instead of u8 as it is used as an array length.
-pub const MODEL_TYPE_COUNT: usize = 3;
+pub const MODEL_TYPE_COUNT: usize = 4;
 
 /// Mapping of model type ids to names.
-pub const MODEL_TYPE_NAMES: [&str; MODEL_TYPE_COUNT] = ["pmc_mean", "swing", "gorilla"];
+pub const MODEL_TYPE_NAMES: [&str; MODEL_TYPE_COUNT] = ["pmc_mean", "swing", "gorilla", "alp"];
 
 /// Size of [`Value`] in bytes.
 pub(super) const VALUE_SIZE_IN_BYTES: u8 = mem::size_of::<Value>() as u8;
@@ -166,6 +168,10 @@ pub fn sum(
             f32::NAN, // A segment with values compressed by Gorilla never has residuals.
             gorilla::sum(model_length, values, None),
         ),
+        ALP_ID => (
+            f32::NAN, // A segment with values compressed by ALP never has residuals.
+            alp::sum(model_length, values, None),
+        ),
         _ => panic!("Unknown model type."),
     };
 
@@ -237,6 +243,14 @@ pub fn grid(
             )
         }
         GORILLA_ID => gorilla::grid(
+            univariate_id,
+            values,
+            univariate_id_builder,
+            model_timestamps,
+            value_builder,
+            None,
+        ),
+        ALP_ID => alp::grid(
             univariate_id,
             values,
             univariate_id_builder,
