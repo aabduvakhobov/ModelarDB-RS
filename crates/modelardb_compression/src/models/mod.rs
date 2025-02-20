@@ -170,7 +170,7 @@ pub fn sum(
         ),
         ALP_ID => (
             f32::NAN, // A segment with values compressed by ALP never has residuals.
-            alp::sum(model_length, values, None),
+            alp::sum(model_length, values),
         ),
         _ => panic!("Unknown model type."),
     };
@@ -256,7 +256,6 @@ pub fn grid(
             univariate_id_builder,
             model_timestamps,
             value_builder,
-            None,
         ),
         _ => panic!("Unknown model type."),
     }

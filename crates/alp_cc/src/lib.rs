@@ -1,6 +1,5 @@
 use arrow::{array::PrimitiveArray, datatypes::Float32Type};
 
-
 pub const VECTOR_SIZE: usize = 1024;
 pub const N_VECTORS_PER_ROWGROUP: usize = 100;
 pub const ROWGROUP_SIZE: usize = N_VECTORS_PER_ROWGROUP * 1024;
@@ -9,9 +8,10 @@ pub const ROWGROUP_SIZE: usize = N_VECTORS_PER_ROWGROUP * 1024;
 #[cxx::bridge(namespace="alp_utils")]
 pub mod ffi{
     unsafe extern  "C++" {
-        include!("alp_sample_program/include/alp_state_values.hpp");
+        include!("alp_cc/include/alp_state_values.hpp");
         // write ALP C++ opaque types
-        type float_state;
+        pub type float_state;
+
 
         fn new_float_state() -> UniquePtr<float_state>; // needs to return heap allocated raw pointer.
         // write ALP C++ function signatures to be used in the project

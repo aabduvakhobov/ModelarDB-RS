@@ -17,14 +17,15 @@
 //! using the model types in [`models`] to produce compressed segments containing metadata and
 //! models.
 
-use alp_sys::{VECTOR_SIZE, N_VECTORS_PER_ROWGROUP, ROWGROUP_SIZE};
+use alp_cc::{VECTOR_SIZE, N_VECTORS_PER_ROWGROUP, ROWGROUP_SIZE};
 
 use arrow::record_batch::RecordBatch;
 use modelardb_types::schemas::COMPRESSED_SCHEMA;
 use modelardb_types::types::{ErrorBound, TimestampArray, ValueArray};
+use arrow::util::bit_util::ceil;
 
 use crate::error::{ModelarDbCompressionError, Result};
-use crate::models::alp::{self, get_rowgroup, ALP};
+use crate::models::alp::{self, ALP};
 use crate::models::gorilla::Gorilla;
 use crate::models::{self, timestamps, GORILLA_ID, ALP_ID};
 use crate::types::{CompressedSegmentBatchBuilder, CompressedSegmentBuilder, ModelBuilder};
@@ -220,6 +221,10 @@ fn store_compressed_segments_with_model_and_or_residuals(
 /// including `end_index` in `uncompressed_values` using [`Gorilla`] and store the resulting model
 /// with the corresponding timestamps from `uncompressed_timestamps` as a segment in
 /// `compressed_segment_batch_builder`.
+/// 
+/// THINGS TO DO:
+/// 1. Implement ALP logic
+/// 2. Ensure timestamps are updated
 fn compress_and_store_residuals_in_a_separate_segment(
     univariate_id: u64,
     error_bound: ErrorBound,
@@ -259,39 +264,40 @@ fn compress_and_store_residuals_in_a_separate_segment(
         )
     } else {
         // Create rowgroups, since we know there is enough data i.e., more than a single vector
-        let n_tuples = values.len();
-        let n_rowgroups = n_tuples / ROWGROUP_SIZE;
-        let n_vecs = n_tuples / VECTOR_SIZE;
+        let n_tuples = uncompressed_values.len();
+        let n_vecs = ceil (n_tuples, VECTOR_SIZE);
         // all rowgroups we have
         let num_rowgroups = ceil(n_tuples, ROWGROUP_SIZE);
-        // Iterate over rowgroups
-        for row_group_id in 0..num_rowgroups {
-            // Find vectors per rowgroup
-            let mut vectors_per_current_rowgroup: usize = 0;
+        for rowgroup_id in 0..num_rowgroups {
+            let num_vectors_in_a_rowgroup: usize;
             if num_rowgroups == 1 {
-                // only one rowgroup
-                vectors_per_current_rowgroup = n_vecs;
-            } else if row_group_id == num_rowgroups - 1 {
+                num_vectors_in_a_rowgroup = n_vecs;
+            } else if rowgroup_id == num_rowgroups - 1 {
                 // last row_group: reminder vectors
-                vectors_per_current_rowgroup = n_vecs % N_VECTORS_PER_ROWGROUP;
+                num_vectors_in_a_rowgroup = n_vecs % N_VECTORS_PER_ROWGROUP;
             } else {
-                vectors_per_current_rowgroup = N_VECTORS_PER_ROWGROUP;
+                num_vectors_in_a_rowgroup = N_VECTORS_PER_ROWGROUP;
             }
-            // Find values per rowgroup
-            let num_values_in_a_rowgroup = vectors_per_current_rowgroup * VECTOR_SIZE;
-            let current_rowgroup = alp::get_rowgroup(row_group_id, num_values_in_a_rowgroup, &values);
-            // Perform ALP first level sampling and update state
+            // we overestimate by taking padding into consideration
+            let n_values_per_current_rg = num_vectors_in_a_rowgroup * VECTOR_SIZE;
+            let mut current_rowgroup = alp::get_rowgroup(rowgroup_id, &uncompressed_values);
+            let mut is_padded = false;
+            // If needed not complete vectors are padded with sentinel value
+            let padded_vec = alp::perform_padding(&current_rowgroup, &mut is_padded); 
+            current_rowgroup = padded_vec.as_slice();
             let mut stt = alp::init(
                 &current_rowgroup, 
-                row_group_id, 
-                vectors_per_current_rowgroup
+                rowgroup_id, 
+                n_values_per_current_rg,
             );
+            
             if alp::can_use_alp(&stt) {
                 // Compress with ALP
                 let mut alp = ALP::new(error_bound);
                 alp.compress_values(
                     &current_rowgroup,
-                    num_values_in_a_rowgroup,
+                    num_vectors_in_a_rowgroup,
+                    is_padded,
                     &mut stt
                 );
                 let (values, min_value, max_value) = alp.model();

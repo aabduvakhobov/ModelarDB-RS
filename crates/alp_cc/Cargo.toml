@@ -15,7 +15,7 @@
 # For ALP: 2023 CWI, Azim Afroozeh,  Leonardo Xavier Kuffo Rivero
 
 [package]
-name = "alp_sys"
+name = "alp_cc"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
