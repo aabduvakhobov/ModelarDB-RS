@@ -1,4 +1,3 @@
-use arrow::{array::PrimitiveArray, datatypes::Float32Type};
 
 pub const VECTOR_SIZE: usize = 1024;
 pub const N_VECTORS_PER_ROWGROUP: usize = 100;

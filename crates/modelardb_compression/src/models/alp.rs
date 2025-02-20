@@ -330,7 +330,7 @@ fn read_metadata(bytes: &[u8], read_byte_index: usize) -> (u8, u8, u8, i32, usiz
     let exponent = bytes[more_bytes_readed];
     more_bytes_readed += 1;
     let bit_width = bytes[more_bytes_readed];
-    let base_arr = i32::from_le_bytes(bytes[more_bytes_readed+1..more_bytes_readed+5].try_into().unwrap());// from_u8_slice(bytes[read_bytes+4..read_bytes+8]) ;
+    let base_arr = i32::from_le_bytes(bytes[more_bytes_readed+1..more_bytes_readed+5].try_into().unwrap());
     more_bytes_readed += 5;
     (factor, exponent, bit_width, base_arr, more_bytes_readed)
 }

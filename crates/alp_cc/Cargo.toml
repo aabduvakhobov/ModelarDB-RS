@@ -23,7 +23,7 @@ authors = ["Abduvoris Abduvakhobov, Azim Afroozeh,  Leonardo Xavier Kuffo Rivero
 
 [dependencies]
 arrow.workspace = true
-cxx.workspace = true
+cxx = "1.0"
 
 [build-dependencies]
 cxx-build = "1.0"
