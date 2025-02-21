@@ -67,6 +67,7 @@ pub fn try_compress(
     // Enough memory for end_index compressed segments are allocated to never require reallocation
     // as one compressed segment is created per data point in the absolute worst case.
     let end_index = uncompressed_timestamps.len();
+    dbg!(end_index);
     let mut compressed_segment_batch_builder = CompressedSegmentBatchBuilder::new(end_index);
 
     // Compress the uncompressed timestamps and uncompressed values.
@@ -223,8 +224,8 @@ fn store_compressed_segments_with_model_and_or_residuals(
 /// `compressed_segment_batch_builder`.
 /// 
 /// THINGS TO DO:
-/// 1. Implement ALP logic
-/// 2. Ensure timestamps are updated
+/// 1. Implement ALP logic: DONE
+/// 2. Ensure timestamps are updated: 
 fn compress_and_store_residuals_in_a_separate_segment(
     univariate_id: u64,
     error_bound: ErrorBound,
@@ -237,10 +238,11 @@ fn compress_and_store_residuals_in_a_separate_segment(
     // Compress the timestamps for the values stored in this segment without residuals.
     let start_time = uncompressed_timestamps.value(start_index);
     let end_time = uncompressed_timestamps.value(end_index);
+    dbg!(end_index);
     let timestamps = timestamps::compress_residual_timestamps(
         &uncompressed_timestamps.values()[start_index..=end_index],
     );
-
+    dbg!(timestamps.len());
     // Compute metadata and compress the values stored in this segment without residuals.
     let uncompressed_values = &uncompressed_values.values()[start_index..=end_index];
   
@@ -263,36 +265,47 @@ fn compress_and_store_residuals_in_a_separate_segment(
             f32::NAN, // TODO: compute and store the actual error.
         )
     } else {
+        // Update start time and end time and insert correct amount of timestamps for each segment 
+        let mut start_index = start_index;
         // Create rowgroups, since we know there is enough data i.e., more than a single vector
         let n_tuples = uncompressed_values.len();
-        let n_vecs = ceil (n_tuples, VECTOR_SIZE);
+        let num_vectors = ceil (n_tuples, VECTOR_SIZE);
         // all rowgroups we have
         let num_rowgroups = ceil(n_tuples, ROWGROUP_SIZE);
+
         for rowgroup_id in 0..num_rowgroups {
+            dbg!(rowgroup_id);
             let num_vectors_in_a_rowgroup: usize;
             if num_rowgroups == 1 {
-                num_vectors_in_a_rowgroup = n_vecs;
+                num_vectors_in_a_rowgroup = num_vectors;
             } else if rowgroup_id == num_rowgroups - 1 {
                 // last row_group: reminder vectors
-                num_vectors_in_a_rowgroup = n_vecs % N_VECTORS_PER_ROWGROUP;
+                num_vectors_in_a_rowgroup = num_vectors % N_VECTORS_PER_ROWGROUP;
             } else {
                 num_vectors_in_a_rowgroup = N_VECTORS_PER_ROWGROUP;
             }
             // we overestimate by taking padding into consideration
-            let n_values_per_current_rg = num_vectors_in_a_rowgroup * VECTOR_SIZE;
+            let num_values_in_a_rowgroup = num_vectors_in_a_rowgroup * VECTOR_SIZE;
             let mut current_rowgroup = alp::get_rowgroup(rowgroup_id, &uncompressed_values);
             let mut is_padded = false;
-            // If needed not complete vectors are padded with sentinel value
-            let padded_vec = alp::perform_padding(&current_rowgroup, &mut is_padded); 
-            current_rowgroup = padded_vec.as_slice();
+            dbg!(is_padded);
+            let end_index = start_index + current_rowgroup.len()-1;
+            dbg!(start_index);
+            dbg!(end_index);
+            // Perform ALP sampling
             let mut stt = alp::init(
                 &current_rowgroup, 
                 rowgroup_id, 
-                n_values_per_current_rg,
+                num_values_in_a_rowgroup,
             );
-            
+            dbg!(alp::can_use_alp(&stt));
             if alp::can_use_alp(&stt) {
-                // Compress with ALP
+                dbg!("Compressing with ALP");
+                // Compress the rowgroup with ALP
+                // If needed not complete vectors are padded with sentinel value
+                let padded_vec = alp::perform_padding(&current_rowgroup, &mut is_padded); 
+                dbg!(is_padded);
+                current_rowgroup = padded_vec.as_slice();
                 let mut alp = ALP::new(error_bound);
                 alp.compress_values(
                     &current_rowgroup,
@@ -304,9 +317,10 @@ fn compress_and_store_residuals_in_a_separate_segment(
                 compressed_segment_batch_builder.append_compressed_segment(
                     univariate_id,
                     ALP_ID,
-                    start_time,
-                    end_time,
-                    &timestamps,
+                    uncompressed_timestamps.value(start_index),
+                    uncompressed_timestamps.value(end_index),
+                    &timestamps::compress_residual_timestamps(
+                        &uncompressed_timestamps.values()[start_index..=end_index]),
                     min_value,
                     max_value,
                     &values,
@@ -314,16 +328,17 @@ fn compress_and_store_residuals_in_a_separate_segment(
                     f32::NAN, // TODO: compute and store the actual error.
                 )
             } else {
-                // Compress with Gorilla
+                // Compress the rowgroup with Gorilla
                 let mut gorilla = Gorilla::new(error_bound);
                 gorilla.compress_values(&current_rowgroup);
                 let (values, min_value, max_value) = gorilla.model();
                 compressed_segment_batch_builder.append_compressed_segment(
                     univariate_id,
-                    ALP_ID,
-                    start_time,
-                    end_time,
-                    &timestamps,
+                    GORILLA_ID,
+                    uncompressed_timestamps.value(start_index),
+                    uncompressed_timestamps.value(end_index),
+                    &timestamps::compress_residual_timestamps(
+                        &uncompressed_timestamps.values()[start_index..=end_index]),
                     min_value,
                     max_value,
                     &values,
@@ -331,8 +346,11 @@ fn compress_and_store_residuals_in_a_separate_segment(
                     f32::NAN, // TODO: compute and store the actual error.
                 )
             }
+            // update start index
+            start_index += end_index;
         }
     }
+    dbg!(end_index);
 }
 
 

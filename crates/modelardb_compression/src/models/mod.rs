@@ -250,13 +250,16 @@ pub fn grid(
             value_builder,
             None,
         ),
-        ALP_ID => alp::grid(
+        ALP_ID => {alp::grid(
             univariate_id,
             values,
             univariate_id_builder,
             model_timestamps,
             value_builder,
-        ),
+        );
+        dbg!(value_builder.len());
+        dbg!(model_timestamps.len());
+    },
         _ => panic!("Unknown model type."),
     }
 

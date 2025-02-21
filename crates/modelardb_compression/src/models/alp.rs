@@ -1,14 +1,11 @@
-use core::f32;
-
 use cxx::UniquePtr;
 use modelardb_types::types::{Timestamp, UnivariateId, UnivariateIdBuilder, Value, ValueBuilder};
 
 
 use crate::models::ErrorBound;
 
-use arrow::util::bit_util::ceil;
-use alp_cc::{VECTOR_SIZE, ROWGROUP_SIZE};
-use alp_cc::ffi::{self, float_state};
+use arrow::{array::ArrayBuilder, util::bit_util::ceil};
+use alp_cc::{VECTOR_SIZE, ROWGROUP_SIZE, ffi, ffi::float_state};
 
 pub const MAGIC_NUMBER: u16 = 1025;
 
@@ -28,7 +25,7 @@ impl ALP {
     pub fn new(error_bound: ErrorBound) -> Self {
         Self {
             error_bound,
-            min_value: Value::MAX,
+            min_value: Value::NAN,
             max_value: Value::NAN,
             compressed_values: Vec::with_capacity(VECTOR_SIZE),
         }
@@ -44,7 +41,7 @@ impl ALP {
         // Create a new bit vector
         for vector_idx in 0..num_vectors_in_a_rowgroup {
             // Assign value containers
-            let mut exceptions = [f32::INFINITY; VECTOR_SIZE];
+            let mut exceptions = [Value::INFINITY; VECTOR_SIZE];
             let mut exceptions_positions = [0u16; VECTOR_SIZE];
             let mut encoded_integers = [0; VECTOR_SIZE];
             let mut ffor_array= [0; VECTOR_SIZE];                  
@@ -108,7 +105,7 @@ impl ALP {
     }
 
 
-    fn write_exceptions(&mut self, exception_cnt: u16, exceptions: &[f32], exceptions_positions: &[u16], do_padding: bool) {
+    fn write_exceptions(&mut self, exception_cnt: u16, exceptions: &[Value], exceptions_positions: &[u16], do_padding: bool) {
         // First write the exception count in 11 bits since max value can be 1024
         if do_padding {
             self.compressed_values.extend_from_slice(&(exception_cnt + MAGIC_NUMBER).to_le_bytes());
@@ -119,7 +116,7 @@ impl ALP {
             if exception_cnt != 0 {
                 let offset = exception_cnt as usize;
                 // Then write the exceptions in 32bits each
-                self.compressed_values.extend_from_slice(to_u8_slice::<f32>(&exceptions[..offset]));
+                self.compressed_values.extend_from_slice(to_u8_slice::<Value>(&exceptions[..offset]));
                 self.compressed_values.extend_from_slice(to_u8_slice::<u16>(&exceptions_positions[..offset]));
             }
     }
@@ -137,8 +134,8 @@ impl ALP {
 
     /// Update the current minimum, maximum from the given rowgroup 
     fn update_min_max_value(&mut self, values: &[Value]) {
-        self.min_value = Value::min(self.min_value, values.iter().fold(f32::INFINITY, |a, &b| a.min(b)));
-        self.max_value = Value::max(self.max_value, values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+        self.min_value = Value::min(self.min_value, values.iter().fold(Value::INFINITY, |a, &b| a.min(b)));
+        self.max_value = Value::max(self.max_value, values.iter().fold(Value::NEG_INFINITY, |a, &b| a.max(b)));
     }
 
     /// Return the values compressed using ALP with a variable length binary
@@ -205,11 +202,10 @@ pub fn sum(length: usize, values: &[u8]) -> Value {
                 for i in padded_values..decoded_floats.len() {
                     decoded_floats[i] = 0.0;
                 }
-                // let decoded_floats = &decoded_floats[..(decoded_floats.len() - padded_values)];
             }
         }
         // sum decoded array
-        sum += decoded_floats.iter().sum::<f32>();
+        sum += decoded_floats.iter().sum::<Value>();
     }
     sum
 }
@@ -221,20 +217,19 @@ pub fn grid(
     timestamps: &[Timestamp],
     value_builder: &mut ValueBuilder,
 ) {
-    univariate_id_builder.append_value(univariate_id);
+    // Append univariate_id n times by timestamps
+    univariate_id_builder.append_value_n(  univariate_id, timestamps.len());
     let mut read_bytes = 0;
-    let num_vectors_in_a_rowgroup: usize = ceil(timestamps.len(), ROWGROUP_SIZE);
+    let num_vectors_in_a_rowgroup: usize = ceil(timestamps.len(), VECTOR_SIZE);
+    dbg!(timestamps.len());
     for _ in 0..num_vectors_in_a_rowgroup {
-        // now start decoding values from compressed array and write them to decompressed valuebuilder
+        // start decoding values from compressed array and write them to decompressed valuebuilder
         let (factor, exponent, bit_width, base_arr, bytes) = read_metadata(&values, read_bytes);
         read_bytes = bytes;
-        // dbg!(read_bytes);
         let (exception_count, exceptions, exception_positions, bytes, is_padded) = read_exceptions(&values, read_bytes);
         read_bytes = bytes;
-        // dbg!(read_bytes);
         let (ffor_count, ffor_arr, bytes) = read_encoded_integers(&values, read_bytes);
         read_bytes = bytes;
-        // dbg!(read_bytes);
         let mut out = [0; 1024];
         let mut decoded_floats = [0f32; 1024];
 
@@ -270,11 +265,10 @@ pub fn grid(
             value_builder.append_slice(&decoded_floats);
         }
     }
+    dbg!(value_builder.len());
 }
 
-pub fn init(current_rowgroup: &[f32], row_group_id: usize, num_values_per_rowgroup: usize) -> cxx::UniquePtr<ffi::float_state> {
-    // ALP compression strategy:
-    // 1. Split your array into RowGroups that consist of 100 * Vectors
+pub fn init(current_rowgroup: &[Value], row_group_id: usize, num_values_per_rowgroup: usize) -> cxx::UniquePtr<ffi::float_state> {
     let mut stt  = ffi::new_float_state(); 
     ffi::alp_init(
         &current_rowgroup, 
@@ -291,19 +285,22 @@ pub fn can_use_alp(stt: &float_state) -> bool {
     return scheme == 1;
 }
 
-pub fn get_rowgroup(rowgroup_id: usize, rowgroups: &[Value] )-> &[f32] {
+pub fn get_rowgroup(rowgroup_id: usize, rowgroups: &[Value] )-> &[Value] {
     let mut upper_bound = (rowgroup_id+1)*ROWGROUP_SIZE;
     upper_bound = if upper_bound <= rowgroups.len() { upper_bound } else { rowgroups.len() };
+    dbg!(upper_bound);
     let values = &rowgroups[rowgroup_id*ROWGROUP_SIZE..upper_bound];
-    values // slice(rowgroup_id, 1024);
+    values
 }
 
-pub fn perform_padding(current_rowgroup: &[f32], is_padded: &mut bool) -> Vec<f32> {
+pub fn perform_padding(current_rowgroup: &[Value], is_padded: &mut bool) -> Vec<Value> {
+    dbg!("Performing padding");
     let num_values_to_be_padded = if current_rowgroup.len() % VECTOR_SIZE != 0 {
         *is_padded = true;
         VECTOR_SIZE - (current_rowgroup.len() % VECTOR_SIZE)
     } else {
-        0
+        dbg!("Returning current_rowgroup");
+        return current_rowgroup.to_vec();
     };
     let value_to_be_padded = if *current_rowgroup.last().unwrap() != 0.0 { 0.0 } else { 1.0 };
     let mut padded_vals = vec![value_to_be_padded; num_values_to_be_padded];
@@ -313,7 +310,7 @@ pub fn perform_padding(current_rowgroup: &[f32], is_padded: &mut bool) -> Vec<f3
     final_vec
 }
 
-fn get_rowgroup_vector(vector_id: usize, rowgroup: &[Value])->  &[f32] {
+fn get_rowgroup_vector(vector_id: usize, rowgroup: &[Value])->  &[Value] {
     return &rowgroup[vector_id*VECTOR_SIZE..(vector_id+1) * VECTOR_SIZE];
 }
 
@@ -335,7 +332,7 @@ fn read_metadata(bytes: &[u8], read_byte_index: usize) -> (u8, u8, u8, i32, usiz
     (factor, exponent, bit_width, base_arr, more_bytes_readed)
 }
 
-fn read_exceptions(bytes: &[u8], read_byte_index: usize) -> (u16, [f32; 1024], [u16; 1024], usize, bool) {
+fn read_exceptions(bytes: &[u8], read_byte_index: usize) -> (u16, [Value; 1024], [u16; 1024], usize, bool) {
     let mut more_bytes_readed = read_byte_index;
     let mut exceptions_count = u16::from_le_bytes(bytes[more_bytes_readed..more_bytes_readed+2].try_into().unwrap());
     let mut is_padded = false;
@@ -343,17 +340,14 @@ fn read_exceptions(bytes: &[u8], read_byte_index: usize) -> (u16, [f32; 1024], [
         exceptions_count -= MAGIC_NUMBER;
         is_padded = true;
     }
-
     more_bytes_readed += 2;
     let mut exceptions = [0.0; 1024];
     let mut exception_positions = [0u16; 1024];
     if exceptions_count != 0 {
         for i in 0..exceptions_count as usize {
-            exceptions[i] = f32::from_le_bytes(bytes[more_bytes_readed..more_bytes_readed+4].try_into().unwrap()) ;
+            exceptions[i] = Value::from_le_bytes(bytes[more_bytes_readed..more_bytes_readed+4].try_into().unwrap()) ;
             more_bytes_readed += 4;
         }
-        // let exceptions: &[f32] = from_u8_slice(&bytes[more_bytes_readed..more_bytes_readed + (mem::size_of::<f32>() * exceptions_count as usize)]);
-        // more_bytes_readed += 4 * exceptions_count as usize;
         for i in 0..exceptions_count as usize {
             exception_positions[i] = u16::from_le_bytes(bytes[more_bytes_readed..more_bytes_readed+2].try_into().unwrap()) ;
             more_bytes_readed += 2;
@@ -374,11 +368,7 @@ fn read_encoded_integers(bytes: &[u8], read_byte_index: usize) -> (u16, [i32;102
             ffor_arr[i] = i32::from_le_bytes(bytes[more_bytes_readed..more_bytes_readed+4 ].try_into().unwrap() );
             more_bytes_readed += 4;
         }
-        // let ffor_arr: &[i32] = from_u8_slice(&bytes[more_bytes_readed..more_bytes_readed + (std::mem::size_of::<i32>() * ffor_count as usize)]);
-        // more_bytes_readed += std::mem::size_of::<i32>() * ffor_count as usize;
         return (ffor_count, ffor_arr, more_bytes_readed)
     }
     (ffor_count, ffor_arr, more_bytes_readed)
 }
-
-

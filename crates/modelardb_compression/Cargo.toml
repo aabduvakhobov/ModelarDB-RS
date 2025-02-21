@@ -21,7 +21,7 @@ authors = ["Soeren Kejser Jensen <devel@kejserjensen.dk>"]
 
 [dependencies]
 arrow.workspace = true
-cxx = "1.0"
+cxx.workspace = true
 modelardb_types = { path = "../modelardb_types" }
 alp_cc = { path = "../alp_cc" }
 

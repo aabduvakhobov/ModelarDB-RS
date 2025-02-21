@@ -49,9 +49,6 @@ namespace alp_utils {
                 sample_arr.get(),
                 stt
             );
-            // std.cout << 
-            // stt.scheme = alp::Scheme::ALP;
-            // std::cout <<"alp_init: The schema:" << get_state_scheme(stt) << std::endl;
         }
 
 
@@ -72,10 +69,6 @@ namespace alp_utils {
                 stt
             );
             auto exception_count = exc_c_arr.get()[0];
-            // std::cout << "Exceptions count: " << exception_count << std::endl;
-            // for (size_t i = 1015; i < 1024; i++) {
-            //     std::cout << "Encoded int: " << encoded_integers.data()[i] << std::endl;
-            // } 
             return exception_count;
         }
 
@@ -100,7 +93,6 @@ namespace alp_utils {
         rust::Slice<int32_t> out,
         uint8_t bit_width, 
         rust::Slice<const int32_t> ffor_base) {
-        // std::cout << sizeof(*out.data()) << std::endl;                
             // call Fastlane's unffor
             ffor::ffor(
                 in.data(),
@@ -109,8 +101,6 @@ namespace alp_utils {
                 ffor_base.data()
         );
         auto size = sizeof(out) - sizeof(out[0]);
-        std::cout << "alp_state_values: Size of out: " << size << std::endl;
-        // std::cout << sizeof(*out.data()) << std::endl;                
 }
 
     // Checked
@@ -210,6 +200,4 @@ namespace alp_utils {
             arr.data()[i]++;
         }
     }
-
-
 } // namespace alp_utils

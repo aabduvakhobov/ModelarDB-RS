@@ -23,6 +23,7 @@ async-trait = "0.1.83"
 bytes = "1.9.0"
 crossbeam-channel = "0.5.14"
 crossbeam-queue = "0.3.12"
+cxx = "1.0"
 dashmap = "6.0.1"
 datafusion = "44.0.0"
 deltalake = { git = "https://github.com/skejserjensen/delta-rs", rev = "1c5924931ba105305b0bae86795b639de43f9be3" }
