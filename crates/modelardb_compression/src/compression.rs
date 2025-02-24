@@ -269,12 +269,12 @@ fn compress_and_store_residuals_in_a_separate_segment(
         let mut start_index = start_index;
         // Create rowgroups, since we know there is enough data i.e., more than a single vector
         let n_tuples = uncompressed_values.len();
+        // All vectors including the one that needs to be padded
         let num_vectors = ceil (n_tuples, VECTOR_SIZE);
-        // all rowgroups we have
+        // All rowgroups
         let num_rowgroups = ceil(n_tuples, ROWGROUP_SIZE);
 
         for rowgroup_id in 0..num_rowgroups {
-            dbg!(rowgroup_id);
             let num_vectors_in_a_rowgroup: usize;
             if num_rowgroups == 1 {
                 num_vectors_in_a_rowgroup = num_vectors;
@@ -286,26 +286,25 @@ fn compress_and_store_residuals_in_a_separate_segment(
             }
             // we overestimate by taking padding into consideration
             let num_values_in_a_rowgroup = num_vectors_in_a_rowgroup * VECTOR_SIZE;
-            let mut current_rowgroup = alp::get_rowgroup(rowgroup_id, &uncompressed_values);
+            let current_rowgroup = alp::get_rowgroup(rowgroup_id, &uncompressed_values);
             let mut is_padded = false;
             dbg!(is_padded);
             let end_index = start_index + current_rowgroup.len()-1;
             dbg!(start_index);
             dbg!(end_index);
+            let padded_vec = alp::perform_padding(&current_rowgroup, &mut is_padded); 
             // Perform ALP sampling
             let mut stt = alp::init(
-                &current_rowgroup, 
+                padded_vec.as_slice(), 
                 rowgroup_id, 
                 num_values_in_a_rowgroup,
             );
             dbg!(alp::can_use_alp(&stt));
             if alp::can_use_alp(&stt) {
-                dbg!("Compressing with ALP");
                 // Compress the rowgroup with ALP
                 // If needed not complete vectors are padded with sentinel value
-                let padded_vec = alp::perform_padding(&current_rowgroup, &mut is_padded); 
                 dbg!(is_padded);
-                current_rowgroup = padded_vec.as_slice();
+                let current_rowgroup = padded_vec.as_slice();
                 let mut alp = ALP::new(error_bound);
                 alp.compress_values(
                     &current_rowgroup,
@@ -347,7 +346,7 @@ fn compress_and_store_residuals_in_a_separate_segment(
                 )
             }
             // update start index
-            start_index += end_index;
+            start_index += current_rowgroup.len();
         }
     }
     dbg!(end_index);

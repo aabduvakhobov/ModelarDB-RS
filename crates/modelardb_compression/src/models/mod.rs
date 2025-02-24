@@ -91,6 +91,13 @@ pub fn maximum_allowed_deviation(error_bound: ErrorBound, value: f64) -> f64 {
     }
 }
 
+pub fn is_lossless_compression(error_bound: ErrorBound) -> bool {
+    match error_bound {
+        ErrorBound::Absolute(error_bound) => return error_bound == 0.0,
+        ErrorBound::Relative(error_bound) => return error_bound == 0.0,
+    }
+}
+
 /// Returns true if `v1` and `v2` are equivalent or both values are NAN.
 fn equal_or_nan(v1: f64, v2: f64) -> bool {
     v1 == v2 || (v1.is_nan() && v2.is_nan())
@@ -243,23 +250,22 @@ pub fn grid(
             )
         }
         GORILLA_ID => gorilla::grid(
-            univariate_id,
-            values,
-            univariate_id_builder,
-            model_timestamps,
-            value_builder,
-            None,
-        ),
-        ALP_ID => {alp::grid(
-            univariate_id,
-            values,
-            univariate_id_builder,
-            model_timestamps,
-            value_builder,
-        );
-        dbg!(value_builder.len());
-        dbg!(model_timestamps.len());
-    },
+                univariate_id,
+                values,
+                univariate_id_builder,
+                model_timestamps,
+                value_builder,
+                None,
+            ),
+        ALP_ID => {
+            alp::grid(
+                univariate_id,
+                values,
+                univariate_id_builder,
+                model_timestamps,
+                value_builder,
+            );
+        }
         _ => panic!("Unknown model type."),
     }
 

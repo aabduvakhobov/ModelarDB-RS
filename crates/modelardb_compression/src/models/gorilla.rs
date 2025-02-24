@@ -92,15 +92,21 @@ impl Gorilla {
 
     /// Compress `value` using XOR and a variable length binary encoding and then store it.
     fn compress_value_xor_last_value(&mut self, value: Value) {
-        // The best case for Gorilla is storing duplicate values.
-        let value = if models::is_value_within_error_bound(self.error_bound, value, self.last_value)
-        {
-            self.last_value
+        // Rewrite the value bits using the error bound
+        let value_as_integer = if models::is_lossless_compression(self.error_bound) {
+            value.to_bits()
         } else {
-            value
+            // If compression is lossy we try to rewrite value first.
+            // The best case for Gorilla is storing duplicate values.
+            if models::is_value_within_error_bound(self.error_bound, value, self.last_value) {
+                self.last_value.to_bits()
+            } else {
+                // we only do binary rewriting if value rewriting is not possible
+                rewrite_value_bits_binary_search(value.to_bits(), self.error_bound)
+            }
         };
+        let value = f32::from_bits(value_as_integer);
 
-        let value_as_integer = value.to_bits();
         let last_value_as_integer = self.last_value.to_bits();
         let value_xor_last_value = value_as_integer ^ last_value_as_integer;
 
@@ -146,7 +152,6 @@ impl Gorilla {
                 self.last_trailing_zero_bits = trailing_zero_bits;
             }
         }
-
         self.update_min_max_and_last_value(value);
     }
 
@@ -265,6 +270,46 @@ pub fn grid(
         univariate_id_builder.append_value(univariate_id);
         value_builder.append_value(Value::from_bits(last_value));
     }
+}
+
+fn rewrite_value_bits_binary_search(value: u32, error_bound: ErrorBound) -> u32 {
+    rewrite_bits_by_n(value, find_erase_position_binary_search(value, error_bound))
+}
+
+fn find_erase_position_binary_search(bits: u32, error_bound: ErrorBound) -> i32 {
+    let value = f32::from_bits(bits);
+    let mut index = i32::MAX;
+    let abs_error_bound = models::maximum_allowed_deviation(error_bound, value.into()); // compute_absolute_error_bound(error_bound, );
+    let mut low = 0;
+    let mut high = 23;
+    while low <= high {
+        let mid = low + ((high - low) / 2);
+        let error: f64 = (value - f32::from_bits(rewrite_bits_by_n(bits, mid)))
+            .abs()
+            .into();
+        if error < abs_error_bound {
+            low = mid + 1;
+        } else if error > abs_error_bound {
+            high = mid - 1;
+        } else if error == abs_error_bound {
+            index = mid;
+            break;
+        }
+        if mid == high || mid == low {
+            if error > abs_error_bound {
+                index = mid - 1;
+                break;
+            }
+            index = mid;
+            break;
+        }
+    }
+    index
+}
+
+fn rewrite_bits_by_n(bits_to_rewrite: u32, erase_by_n: i32) -> u32 {
+    let mask = u32::MAX << erase_by_n;
+    bits_to_rewrite & mask
 }
 
 #[cfg(test)]

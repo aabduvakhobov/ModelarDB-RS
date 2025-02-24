@@ -100,7 +100,6 @@ namespace alp_utils {
                 bit_width,
                 ffor_base.data()
         );
-        auto size = sizeof(out) - sizeof(out[0]);
 }
 
     // Checked
