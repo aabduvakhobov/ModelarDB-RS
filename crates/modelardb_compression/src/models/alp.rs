@@ -4,7 +4,7 @@ use modelardb_types::types::{Timestamp, UnivariateId, UnivariateIdBuilder, Value
 use crate::models;
 use crate::models::ErrorBound;
 use alp_cc::{ffi, ffi::float_state, ROWGROUP_SIZE, VECTOR_SIZE};
-use arrow::{array::ArrayBuilder, util::bit_util::ceil};
+use arrow::{util::bit_util::ceil};
 
 pub const MAGIC_NUMBER: u16 = 1025;
 
@@ -287,7 +287,7 @@ pub fn grid(
             value_builder.append_slice(&decoded_floats);
         }
     }
-    dbg!(value_builder.len());
+    // dbg!(value_builder.len());
 }
 
 pub fn init(
@@ -318,7 +318,7 @@ pub fn get_rowgroup(rowgroup_id: usize, rowgroups: &[Value]) -> &[Value] {
     } else {
         rowgroups.len()
     };
-    dbg!(upper_bound);
+    // dbg!(upper_bound);
     let values = &rowgroups[rowgroup_id * ROWGROUP_SIZE..upper_bound];
     values
 }

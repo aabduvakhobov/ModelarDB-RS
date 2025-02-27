@@ -73,13 +73,6 @@ pub mod ffi{
         fn get_state_exp(stt: &float_state) -> u8;
 
         // test methods
-        fn new_state() -> i32;
-
-        fn add_one(arr: &mut [f32]);
-
         fn get_sampled_values_n(stt: &float_state) -> usize;
-
-        fn change_sampled_values_n(stt: Pin<&mut float_state>);
-
     }
 }

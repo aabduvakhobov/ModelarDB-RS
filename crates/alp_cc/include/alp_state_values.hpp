@@ -179,24 +179,9 @@ namespace alp_utils {
     static uint8_t get_state_exp(const float_state& stt) {
         return stt.exp; 
     }
+    
      // test methods
-    int32_t new_state(){
-        return 1;
-    }
-
-
     size_t get_sampled_values_n(const float_state& stt) {
         return stt.sampled_values_n;
     };
-
-
-    void change_sampled_values_n(float_state& stt) {
-        // test method to write into stt
-        stt.sampled_values_n = 10;
-    } 
-    void add_one(rust::Slice<float> arr) {
-        for (size_t i = 0; i < arr.size(); i++) {
-            arr.data()[i]++;
-        }
-    }
 } // namespace alp_utils
