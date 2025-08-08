@@ -86,7 +86,7 @@ impl GridExec {
         // assumes the data it receives from all of its inputs uses the same sort order.
         let equivalence_properties = EquivalenceProperties::new_with_orderings(
             schema.clone(),
-            &[query_order_data_point.clone()],
+            std::slice::from_ref(&query_order_data_point),
         );
 
         let plan_properties = PlanProperties::new(
